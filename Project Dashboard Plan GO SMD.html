@@ -797,7 +797,7 @@
     // Memulai proses pengambilan data saat dokumen siap
     document.addEventListener('DOMContentLoaded', fetchData);
     
-    // Hentikan rotasi dan refresh jika tab di background, dan lanjutkan saat aktif (untuk efisiensi)
+    // Hentikan rotasi dan refresh jika tab di background, dan lanjutkan saat aktif (untuk efisiensii)
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             if (rotationTimer) clearTimeout(rotationTimer);
