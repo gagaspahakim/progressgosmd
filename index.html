@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Progress Toko Go-Live</title>
+    <!-- Load Tailwind CSS dari CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Confetti.js untuk fitur perayaan Go-Live -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <style>
+        /* Menggunakan font Inter untuk tampilan modern */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a2e; /* Dark theme background */
+            color: #e4e4e7; /* Light text color */
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        /* Container utama dashboard (agar selalu di tengah layar TV) */
+        #dashboard-container {
+            width: 100%;
+            max-width: 1400px; /* Ukuran maksimal untuk layar lebar */
+        }
+        
+        /* Kartu Toko */
+        .store-card {
+            background-color: #1f213a; /* Warna background card */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15);
+            transition: opacity 0.5s ease-in-out;
+            height: auto;
+        }
+
+        /* Transisi Fade */
+        .fade-out {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .fade-in {
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        /* Tooltip custom (untuk keterangan deviasi) */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip-text {
+            visibility: hidden;
+            width: 200px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%; /* Di atas kotak */
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 11px;
+            pointer-events: none; /* Agar tidak menghalangi klik */
+        }
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator" class="flex flex-col items-center justify-center text-white p-10 bg-gray-900/50 rounded-xl">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-t-4 border-t-teal-500 border-gray-600 mb-4"></div>
+        <p class="text-xl font-semibold">Memuat Data dari Google Sheet...</p>
+    </div>
+
+    <!-- API Warning (Jika URL API kosong) -->
+    <div id="api-warning" class="hidden text-center p-8 bg-red-800/50 text-white rounded-xl max-w-lg mx-auto">
+        <h3 class="text-2xl font-bold mb-2">Konfigurasi Belum Selesai!</h3>
+        <p>Mohon masukkan URL API Google Apps Script Anda ke dalam variabel <code class="bg-red-900 p-1 rounded">GOOGLE_SHEET_API_URL</code> di dalam kode JavaScript.</p>
+        <p class="mt-4 text-sm text-red-300">Saat ini dashboard tidak dapat mengambil data.</p>
+    </div>
+
+    <!-- Dashboard Container Utama (Hidden saat loading) -->
+    <div id="dashboard-container" class="hidden w-full h-full p-4">
+        <header class="text-center mb-6 border-b border-teal-500 pb-3">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-white tracking-wider">DASHBOARD PROGRESS GO BRANCH SAMARINDA</h1>
+        </header>
+
+        <!-- Tempat Toko Ditampilkan (Rotasi) -->
+        <div id="store-display" class="grid grid-cols-1 gap-6">
+            <!-- Kartu Toko akan dirender di sini oleh JavaScript -->
+        </div>
+        
+        <!-- Indikator Waktu Refresh Data dan Credit -->
+        <footer class="text-center mt-6 text-sm text-gray-500">
+            <span id="last-updated-time"></span>
+            <span class="text-xs text-gray-600"> (Data Refresh Setiap 10 Menit)</span>
+            
+            <!-- Credit Baris Baru -->
+            <p class="text-sm font-semibold text-white mt-1">CREATED BY: GAGAS PANDHU AL HAKIM, S.M.</p>
+            <!-- Tambahan Sponsor -->
+            <p class="text-sm font-semibold text-white">INSPIRED BY By: MARKUS NURDIANTO</p>
+        </footer>
+    </div>
+
+
+<script>
+    // =================================================================
+    // KONFIGURASI PENTING
+    // GANTI URL INI DENGAN URL API SHEET ANDA!
+    // Contoh: 'https://script.googleusercontent.com/macros/echo?user_content_key=AeBhSKU1.../exec'
+    const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzxy3pDStVCNShlPXhjXlID7HOnU2cxq298-VvspbsoRQ2vYeYf3Pum3pMUg8pZWxgY/exec'; 
+    
+    // Durasi rotasi per halaman (dalam milidetik). 2 menit = 120000ms
+    const ROTATION_INTERVAL = 120000;
+    
+    // Interval untuk mengambil data terbaru dari API (misalnya 10 menit = 600000ms)
+    const DATA_REFRESH_INTERVAL = 600000; 
+
+    // Jumlah toko yang ditampilkan per halaman. Diubah menjadi 1 sesuai permintaan.
+    const STORES_PER_PAGE = 1;
+
+    // =================================================================
+    // LOGIKA APLIKASI
+    // =================================================================
+
+    const dashboardContainer = document.getElementById('dashboard-container');
+    const storeDisplay = document.getElementById('store-display');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const apiWarning = document.getElementById('api-warning');
+    const lastUpdatedElement = document.getElementById('last-updated-time');
+    
+    let allStores = [];
+    let currentPage = 0;
+    let rotationTimer = null;
+    let dataRefreshTimer = null;
+    let countdownTimers = []; // Array untuk menyimpan semua timer countdown
+    let lastFetchTime = null;
+    let confettiActive = false; // Flag untuk memastikan confetti tidak berjalan ganda
+
+    /**
+     * Mengubah tanggal YYYY-MM-DD menjadi format DD MMMM YYYY (Indonesia)
+     * @param {string} dateString - Tanggal dalam format YYYY-MM-DD.
+     * @returns {string} - Tanggal dalam format DD MMMM YYYY.
+     */
+    function formatDate(dateString) {
+        if (!dateString) return '-';
+        try {
+            // Pastikan parsing tanggal berfungsi baik, terutama jika data sheet tidak sempurna
+            let date = new Date(dateString); 
+            // Cek validitas date
+            if (isNaN(date)) {
+                // Coba parsing ulang dengan asumsi format DD/MM/YYYY
+                const parts = dateString.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+                if (parts) {
+                    date = new Date(parts[3], parts[2] - 1, parts[1]);
+                } else {
+                    return dateString;
+                }
+            }
+            const options = { day: '2-digit', month: 'long', year: 'numeric' };
+            return date.toLocaleDateString('id-ID', options);
+        } catch (e) {
+            console.error("Gagal memformat tanggal:", dateString, e);
+            return dateString;
+        }
+    }
+
+    /**
+     * Memulai efek confetti untuk perayaan Go-Live
+     */
+    function triggerConfetti() {
+        if (typeof confetti === 'undefined' || confettiActive) return;
+        
+        confettiActive = true;
+        console.log('[Confetti] Mengaktifkan efek perayaan Go-Live!');
+
+        // Memulai hujan Confetti dari tengah atas
+        const end = Date.now() + (5 * 1000); // Berlangsung selama 5 detik
+
+        (function frame() {
+            confetti({
+                particleCount: 2,
+                angle: 60,
+                spread: 55,
+                origin: { x: 0 },
+            });
+            confetti({
+                particleCount: 2,
+                angle: 120,
+                spread: 55,
+                origin: { x: 1 },
+            });
+
+            if (Date.now() < end) {
+                requestAnimationFrame(frame);
+            } else {
+                confettiActive = false;
+            }
+        }());
+    }
+
+    /**
+     * Menghitung mundur (countdown) dari Plan Tanggal Go
+     * Fungsi ini sekarang hanya mengembalikan elemen HTML awal untuk Countdown
+     * @param {string} goDateString - Tanggal GO dalam format YYYY-MM-DD.
+     * @param {string} storeId - ID toko untuk targeting DOM.
+     * @returns {string} - HTML placeholder untuk countdown.
+     */
+    function initializeCountdown(goDateString, storeId) {
+        if (!goDateString) return '<span class="text-gray-500">Tanggal GO Belum Ditetapkan</span>';
+        
+        // Buat ID unik untuk elemen countdown
+        const countdownElementId = `countdown-${storeId}`;
+
+        // Konversi tanggal GO ke objek Date yang stabil
+        let targetDate = new Date(goDateString);
+        // Jika tanggal tidak valid, coba parsing DD/MM/YYYY
+        if (isNaN(targetDate)) {
+             const parts = goDateString.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+             if (parts) {
+                targetDate = new Date(parts[3], parts[2] - 1, parts[1]);
+             } else {
+                return '<span class="text-gray-500">Tanggal GO Tidak Valid</span>';
+             }
+        }
+
+        // Atur target waktu ke awal hari (00:00:00) pada PlanTanggalGo
+        targetDate.setHours(0, 0, 0, 0);
+
+        // Tambahkan timer ke daftar untuk diaktifkan nanti
+        countdownTimers.push({ 
+            id: countdownElementId, 
+            target: targetDate.getTime()
+        });
+        
+        // Kembalikan placeholder yang akan diisi oleh fungsi startRealTimeCountdown
+        return `<span id="${countdownElementId}" class="font-bold text-gray-300 text-lg">Memulai Countdown...</span>`;
+    }
+
+    /**
+     * Memformat selisih waktu menjadi teks D:H:M:S
+     * @param {number} distance - Selisih waktu dalam milidetik.
+     * @returns {string} - HTML yang diformat.
+     */
+    function formatTime(distance) {
+        if (distance < 0) {
+            const absDistance = Math.abs(distance);
+            const daysPast = Math.floor(absDistance / (1000 * 60 * 60 * 24));
+            
+            // JIKA SUDAH LEWAT GO-LIVE
+            return `<span class="font-bold text-red-500">Terlambat ${daysPast} Hari</span>`;
+        }
+        
+        const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+        // Gunakan styling yang lebih detail
+        return `
+            <div class="flex space-x-2 text-center text-white">
+                <span class="flex flex-col">
+                    <span class="text-2xl font-extrabold text-green-400">${days.toString().padStart(2, '0')}</span>
+                    <span class="text-xs text-gray-400">Hari</span>
+                </span>
+                <span class="text-2xl font-extrabold text-teal-500">:</span>
+                <span class="flex flex-col">
+                    <span class="text-2xl font-extrabold text-teal-400">${hours.toString().padStart(2, '0')}</span>
+                    <span class="text-xs text-gray-400">Jam</span>
+                </span>
+                <span class="text-2xl font-extrabold text-teal-500">:</span>
+                <span class="flex flex-col">
+                    <span class="text-2xl font-extrabold text-teal-400">${minutes.toString().padStart(2, '0')}</span>
+                    <span class="text-xs text-gray-400">Menit</span>
+                </span>
+                <span class="text-2xl font-extrabold text-teal-500">:</span>
+                <span class="flex flex-col">
+                    <span class="text-2xl font-extrabold text-teal-400">${seconds.toString().padStart(2, '0')}</span>
+                    <span class="text-xs text-gray-400">Detik</span>
+                </span>
+            </div>
+        `;
+    }
+
+    /**
+     * Memulai interval yang akan memperbarui semua countdown yang sedang ditampilkan
+     */
+    function startRealTimeCountdown() {
+        // Hapus interval lama jika ada
+        if (window.countdownInterval) clearInterval(window.countdownInterval);
+
+        // Buat interval baru yang berjalan setiap 1 detik
+        window.countdownInterval = setInterval(() => {
+            const now = new Date().getTime();
+
+            countdownTimers.forEach(timer => {
+                const element = document.getElementById(timer.id);
+                if (element) {
+                    const distance = timer.target - now;
+                    
+                    if (distance > 0) {
+                        // Masih Countdown
+                        element.innerHTML = formatTime(distance);
+                    } else if (distance >= -86400000 && distance < 0) {
+                         // GO-LIVE HARI INI (atau sudah Go-Live tapi belum 24 jam)
+                        element.innerHTML = `<span class="font-bold text-yellow-400 text-2xl">GO-LIVE SUKSES!</span>`;
+                        triggerConfetti(); // Panggil efek confetti
+                    } else {
+                        // Terlambat (atau sudah lewat 24 jam)
+                        element.innerHTML = formatTime(distance);
+                    }
+                }
+            });
+
+            // Hentikan timer jika tidak ada elemen countdown yang tersisa di DOM
+            if (countdownTimers.length === 0 && window.countdownInterval) {
+                clearInterval(window.countdownInterval);
+            }
+        }, 1000); // Update setiap 1 detik
+    }
+
+    /**
+     * Membuat kotak indikator deviasi dengan tooltip
+     * @param {number} deviasi - Angka deviasi (+/-).
+     * @returns {string} - HTML Kotak Deviasi dengan Tooltip.
+     */
+    function getDeviationIndicator(deviasi) {
+        const value = parseInt(deviasi, 10);
+        
+        const isPositive = value > 0;
+        const colorClass = isPositive ? 'bg-green-600' : (value < 0 ? 'bg-red-600' : 'bg-gray-600');
+        const icon = isPositive 
+            ? `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M5.47 7.72a.75.75 0 011.06 0L10 11.19l3.47-3.47a.75.75 0 111.06 1.06l-4 4a.75.75 0 01-1.06 0l-4-4a.75.75 0 010-1.06z" clip-rule="evenodd" transform="rotate(180 10 9.72)"></path></svg>` // Panah Atas (Lebih Cepat)
+            : (value < 0 
+                ? `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M5.47 12.28a.75.75 0 010-1.06l4-4a.75.75 0 011.06 0l4 4a.75.75 0 11-1.06 1.06L10 8.81l-3.47 3.47a.75.75 0 01-1.06 0z" clip-rule="evenodd"></path></svg>` // Panah Bawah (Lebih Lambat)
+                : `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v12.5a.75.75 0 01-1.5 0V3.75A.75.75 0 0110 3z" clip-rule="evenodd" /></svg>` // Garis (Sama)
+            );
+            
+        const tooltipText = isPositive 
+            ? 'Lebih cepat/di atas Plan' 
+            : (value < 0 ? 'Lebih lambat/di bawah Plan' : 'Sesuai Plan');
+
+        return `
+            <div class="tooltip-container">
+                <div class="w-20 h-10 flex items-center justify-center rounded-lg text-white font-extrabold text-sm ${colorClass} p-1">
+                    <span class="flex items-center">
+                        ${value === 0 ? '' : (isPositive ? '+' : '')}${value}%
+                        <span class="ml-1">${icon}</span>
+                    </span>
+                </div>
+                <span class="tooltip-text">${tooltipText}</span>
+            </div>
+        `;
+    }
+
+    /**
+     * Membuat komponen checklist OK/NOK
+     * @param {string} status - OK atau NOK.
+     * @param {string} date - Tanggal Selesai (YYYY-MM-DD).
+     * @returns {string} - HTML untuk komponen OK/NOK.
+     */
+    function createChecklistComponent(status, date) {
+        const isOK = status && status.toUpperCase() === 'OK';
+        const okClass = isOK ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-400';
+        const nokClass = !isOK && status && status.toUpperCase() === 'NOK' ? 'bg-red-600 text-white' : 'bg-gray-700 text-gray-400';
+        const displayDate = formatDate(date);
+
+        // Ikon Checklist SVG
+        const checkIcon = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+        
+        return `
+            <div class="flex items-stretch space-x-2 h-full">
+                <div class="flex-shrink-0 w-16 text-xs font-semibold rounded-lg flex flex-col justify-center items-center p-1 ${okClass}">
+                    ${isOK ? checkIcon : '-'}
+                    <span>OK</span>
+                </div>
+                <div class="flex-shrink-0 w-16 text-xs font-semibold rounded-lg flex flex-col justify-center items-center p-1 ${nokClass}">
+                    ${!isOK && status && status.toUpperCase() === 'NOK' ? checkIcon : '-'}
+                    <span>NOK</span>
+                </div>
+                <div class="flex-grow bg-gray-700 rounded-lg flex items-center justify-center p-2 text-sm font-medium">
+                    ${displayDate}
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Merender komponen status simple (OK/Tanggal)
+     */
+    const renderSimpleStatus = (status, date) => {
+        const isOK = status && status.toUpperCase() === 'OK';
+        const statusClass = isOK ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-400';
+        const displayDate = formatDate(date);
+        const checkIcon = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+
+        return `
+            <div class="flex items-stretch space-x-2 h-full">
+                <div class="flex-shrink-0 w-16 text-xs font-semibold rounded-lg flex flex-col justify-center items-center p-1 ${statusClass}">
+                    ${isOK ? checkIcon : '-'}
+                    <span>OK</span>
+                </div>
+                <div class="flex-grow bg-gray-700 rounded-lg flex items-center justify-center p-2 text-sm font-medium">
+                    ${displayDate}
+                </div>
+            </div>
+        `;
+    };
+
+    /**
+     * Merender kartu toko ke dalam DOM
+     * @param {object} storeData - Data toko tunggal.
+     * @returns {string} - HTML kartu toko.
+     */
+    function renderStoreCard(storeData) {
+        // 1. Data Utama
+        const { 
+            NO, KodeToko, NamaToko, PlanTanggalGo, 
+            Building_Progress, Building_Deviasi,
+            Category_Layout, Category_TanggalSelesai,
+            AdminOPR_TimeTable, AdminOPR_TimeTable_Tanggal,
+            AdminOPR_PB, AdminOPR_PB_Tanggal,
+            GService_Rak, GService_Rak_Tanggal,
+            GService_ShopSign, GService_ShopSign_Tanggal,
+            GService_PoleSign, GService_PoleSign_Tanggal,
+            
+            // Data Notaris dan SPK
+            Notaris_Status, Notaris_Tanggal,
+            SPK_LamaHari
+        } = storeData;
+
+        // ID unik untuk kartu
+        const storeId = `store-${NO}`;
+
+        // Penghitungan
+        const countdownHtml = initializeCountdown(PlanTanggalGo, storeId); // Inisialisasi dan dapatkan placeholder
+        // Menggunakan fungsi deviasi baru
+        const deviasiIndicatorHtml = getDeviationIndicator(Building_Deviasi); 
+        const progressPercent = parseInt(Building_Progress, 10);
+        const progressClass = progressPercent >= 100 ? 'bg-green-500' : 'bg-yellow-500';
+
+        // Tampilan Checklist
+        const categoryLayout = createChecklistComponent(Category_Layout, Category_TanggalSelesai);
+        const adminOPRTimeTable = createChecklistComponent(AdminOPR_TimeTable, AdminOPR_TimeTable_Tanggal);
+        const adminOPRPB = createChecklistComponent(AdminOPR_PB, AdminOPR_PB_Tanggal);
+        
+        const gServiceRak = renderSimpleStatus(GService_Rak, GService_Rak_Tanggal);
+        const gServiceShopSign = renderSimpleStatus(GService_ShopSign, GService_ShopSign_Tanggal);
+        const gServicePoleSign = renderSimpleStatus(GService_PoleSign, GService_PoleSign_Tanggal);
+
+        // LOGIKA Notaris: Tampilkan Tanggal Notaris jika statusnya "OK"
+        let notarisInfo = '';
+        if (Notaris_Status && Notaris_Status.toUpperCase() === 'OK' && Notaris_Tanggal) {
+            notarisInfo = `
+                <div class="mt-1 px-3 py-1 bg-yellow-600/30 rounded-lg text-yellow-300 text-sm font-semibold">
+                    NOTARIS: ${formatDate(Notaris_Tanggal)}
+                </div>
+            `;
+        }
+
+        // LOGIKA SPK: Tampilkan Lama SPK di sebelah Building
+        const spkInfo = SPK_LamaHari ? SPK_LamaHari : 'N/A';
+        const spkHtml = `
+            <div class="ml-4 flex-shrink-0 px-3 py-1 bg-blue-600/30 rounded-lg text-blue-300 text-sm font-bold">
+                SPK: ${spkInfo}
+            </div>
+        `;
+
+
+        return `
+            <div id="${storeId}" class="store-card rounded-xl p-6 flex flex-col overflow-hidden">
+                <!-- Header Toko -->
+                <div class="flex justify-between items-start border-b border-gray-700 pb-3 mb-4">
+                    <div class="flex flex-col">
+                        <span class="text-sm font-light text-gray-400">#${NO} ${KodeToko}</span>
+                        <h2 class="text-3xl font-bold text-teal-400">${NamaToko}</h2>
+                        <!-- TAMPILAN NOTARIS -->
+                        ${notarisInfo}
+                    </div>
+                    <div class="text-right flex flex-col items-end">
+                        <span class="text-xs font-light text-gray-400">PLAN GO DATE</span>
+                        <p class="text-lg font-semibold">${formatDate(PlanTanggalGo)}</p>
+                        <!-- Countdown akan diisi di sini secara real-time -->
+                        <div class="mt-1">${countdownHtml}</div>
+                    </div>
+                </div>
+
+                <!-- Bagian Progress (Building) -->
+                <div class="progress-detail-row flex justify-between items-center p-3 bg-gray-800 rounded-lg mb-4">
+                    <div class="flex flex-col w-full md:w-1/3">
+                        <span class="text-md font-bold text-yellow-300">1. BUILDING</span>
+                        <span class="text-sm text-gray-400">Progress Pembangunan</span>
+                    </div>
+                    
+                    <!-- Lama SPK Hari di sebelah Building -->
+                    ${spkHtml}
+
+                    <div class="flex flex-col w-full md:w-2/3 ml-4">
+                        <div class="flex items-center space-x-4">
+                            <!-- Bar Progress -->
+                            <div class="flex-grow bg-gray-600 h-3 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full ${progressClass}" style="width: ${progressPercent > 100 ? 100 : progressPercent}%;"></div>
+                            </div>
+                            <!-- Nilai Progress & Deviasi -->
+                            <div class="flex-shrink-0 flex items-center space-x-4">
+                                <span class="text-xl font-extrabold text-white">${progressPercent}%</span>
+                                <!-- Kotak Deviasi Baru -->
+                                ${getDeviationIndicator(Building_Deviasi)} 
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bagian Checklist (Category, Admin OPR, General Service) -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 flex-grow">
+                    
+                    <!-- Category -->
+                    <div class="flex flex-col bg-gray-800 p-3 rounded-xl shadow-inner border border-gray-700">
+                        <span class="text-md font-bold text-blue-400 mb-2">2. CATEGORY</span>
+                        <div class="flex flex-col space-y-2">
+                            <label class="text-sm text-gray-300 font-medium">Layout</label>
+                            ${categoryLayout}
+                        </div>
+                    </div>
+
+                    <!-- Admin OPR -->
+                    <div class="flex flex-col bg-gray-800 p-3 rounded-xl shadow-inner border border-gray-700">
+                        <span class="text-md font-bold text-orange-400 mb-2">3. ADMIN OPR</span>
+                        <div class="flex flex-col space-y-2">
+                            <label class="text-sm text-gray-300 font-medium">Time Table</label>
+                            ${adminOPRTimeTable}
+                            <label class="text-sm text-gray-300 font-medium pt-2">PB (Pre-Opening Budget)</label>
+                            ${adminOPRPB}
+                        </div>
+                    </div>
+
+                    <!-- General Service -->
+                    <div class="flex flex-col bg-gray-800 p-3 rounded-xl shadow-inner border border-gray-700">
+                        <span class="text-md font-bold text-pink-400 mb-2">4. GENERAL SERVICE</span>
+                        <div class="grid grid-cols-1 gap-2">
+                            <label class="text-sm text-gray-300 font-medium">Rak</label>
+                            ${gServiceRak}
+                            <label class="text-sm text-gray-300 font-medium pt-2">Shop Sign / Pole Sign</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div class="flex flex-col space-y-1">
+                                    <label class="text-xs text-gray-400">Shop Sign</label>
+                                    ${gServiceShopSign}
+                                </div>
+                                <div class="flex flex-col space-y-1">
+                                    <label class="text-xs text-gray-400">Pole Sign</label>
+                                    ${gServicePoleSign}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Memulai timer refresh data (panggil fetchData lagi)
+     */
+    function startDataRefreshTimer() {
+        if (dataRefreshTimer) clearTimeout(dataRefreshTimer);
+        // Atur ulang timer untuk refresh data
+        dataRefreshTimer = setTimeout(fetchData, DATA_REFRESH_INTERVAL);
+        console.log(`[Dashboard] Timer Data Refresh disetel untuk ${DATA_REFRESH_INTERVAL / 60000} menit lagi.`);
+    }
+    
+    /**
+     * Memperbarui informasi waktu terakhir data diambil
+     */
+    function updateLastFetchTime() {
+        lastUpdatedElement.textContent = lastFetchTime 
+            ? `Data diperbarui terakhir pada: ${lastFetchTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+            : 'Menunggu pengambilan data pertama...';
+    }
+
+    /**
+     * Menampilkan data toko saat ini berdasarkan currentPage
+     */
+    function displayCurrentPage() {
+        if (allStores.length === 0) {
+            console.warn('[Dashboard] Tidak ada data toko untuk ditampilkan.');
+            // Jika tidak ada toko, tampilkan pesan di layar
+            storeDisplay.innerHTML = `
+                <div class="text-center p-8 bg-gray-800 rounded-xl max-w-lg mx-auto">
+                    <p class="text-2xl font-bold text-green-400">🎉 Semua Toko Sudah Go-Live! 🎉</p>
+                    <p class="text-gray-400 mt-2">Daftar toko yang akan datang kosong.</p>
+                </div>
+            `;
+            // Hentikan rotasi dan hanya lakukan refresh data secara berkala
+            if (rotationTimer) clearTimeout(rotationTimer);
+            return;
+        }
+        
+        // Hentikan confetti jika sedang aktif dan rotasi berlanjut ke toko berikutnya
+        confettiActive = false; 
+
+        storeDisplay.classList.remove('fade-in');
+        storeDisplay.classList.add('fade-out');
+        
+        // Bersihkan timer countdown yang lama sebelum merender yang baru
+        countdownTimers = []; 
+        if (window.countdownInterval) clearInterval(window.countdownInterval);
+
+        setTimeout(() => {
+            storeDisplay.innerHTML = '';
+            
+            const startIndex = currentPage * STORES_PER_PAGE;
+            const endIndex = Math.min(startIndex + STORES_PER_PAGE, allStores.length);
+            
+            const storesToDisplay = allStores.slice(startIndex, endIndex);
+
+            if (storesToDisplay.length > 0) {
+                storesToDisplay.forEach(store => {
+                    storeDisplay.innerHTML += renderStoreCard(store);
+                    // LOG PENTING: Tunjukkan toko yang sedang ditampilkan
+                    console.log(`[Rotasi Toko] Menampilkan Toko: ${store.NamaToko} (Indeks: ${startIndex})`);
+                });
+            } else {
+                console.warn(`[Rotasi Toko] Gagal menampilkan toko di indeks ${startIndex}. Mungkin sudah mencapai akhir array.`);
+            }
+
+            // Setelah elemen di DOM, mulai countdown real-time
+            startRealTimeCountdown();
+
+            // Transisi masuk
+            storeDisplay.classList.remove('fade-out');
+            storeDisplay.classList.add('fade-in');
+
+            // Hitung halaman berikutnya
+            // Pindah ke indeks toko berikutnya
+            currentPage++;
+
+            // Jika indeks halaman berikutnya sudah melebihi jumlah total toko, kembali ke indeks 0
+            if (startIndex + STORES_PER_PAGE >= allStores.length) {
+                currentPage = 0; // Kembali ke toko pertama
+            }
+            
+            // LOG PENTING: Tunjukkan indeks toko berikutnya yang akan ditampilkan
+            console.log(`[Rotasi Toko] Rotasi berikutnya akan menampilkan Toko dengan Indeks: ${currentPage}`);
+
+            // Atur timer untuk rotasi berikutnya
+            startRotationTimer();
+        }, 500); // Tunggu 500ms (durasi transisi fade-out)
+    }
+
+    /**
+     * Memulai timer rotasi
+     */
+    function startRotationTimer() {
+        if (rotationTimer) clearTimeout(rotationTimer);
+        // Hanya atur timer jika ada toko untuk dirotasi
+        if (allStores.length > 0) {
+             rotationTimer = setTimeout(displayCurrentPage, ROTATION_INTERVAL);
+             console.log(`[Rotasi Toko] Timer rotasi disetel. Rotasi berikutnya dalam ${ROTATION_INTERVAL / 1000} detik.`);
+        } else {
+             console.log(`[Rotasi Toko] Tidak ada toko aktif. Rotasi dihentikan.`);
+        }
+    }
+
+    /**
+     * Mengambil data dari Google Sheet API (KODE FETCHDATA TERBARU)
+     */
+    async function fetchData() {
+        if (!GOOGLE_SHEET_API_URL || GOOGLE_SHEET_API_URL === 'PASTE_URL_API_APPS_SCRIPT_YANG_BERFUNGSI_DI_SINI') {
+            loadingIndicator.classList.add('hidden');
+            apiWarning.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            const response = await fetch(GOOGLE_SHEET_API_URL);
+            
+            if (!response.ok) {
+                throw new Error(`Gagal mengambil data: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            // Ambil array data dari key 'stores'
+            const rawStores = data.stores; 
+            
+            if (!rawStores || rawStores.length === 0) {
+                 throw new Error("Data toko tidak ditemukan di key 'stores' atau array kosong.");
+            }
+            
+            // =========================================================
+            // FITUR 2: FILTER TOKO YANG SUDAH GO-LIVE LAMA
+            // =========================================================
+            const now = new Date();
+            // Atur waktu sekarang ke awal hari untuk perbandingan tanggal saja (00:00:00)
+            now.setHours(0, 0, 0, 0); 
+            // Ambil tanggal 30 hari yang lalu (atau 3 hari yang lalu jika Go-Live baru lewat)
+            const cutoffDate = new Date(now);
+            cutoffDate.setDate(now.getDate() - 3); // Toko akan hilang 3 hari setelah tanggal Plan Go
+
+            const filteredStores = rawStores.filter(store => {
+                const planGoDateString = store.PlanTanggalGo;
+                
+                if (!planGoDateString) {
+                    // Jika tidak ada tanggal Plan Go, anggap masih dalam proses
+                    return true; 
+                }
+
+                let planGoDate = new Date(planGoDateString);
+                if (isNaN(planGoDate)) {
+                    // Coba parsing DD/MM/YYYY jika format default gagal
+                    const parts = planGoDateString.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+                    if (parts) {
+                        planGoDate = new Date(parts[3], parts[2] - 1, parts[1]);
+                    } else {
+                        // Jika tanggal tidak valid, tetap tampilkan
+                        return true;
+                    }
+                }
+                
+                // Atur Plan Go Date ke awal hari (00:00:00) untuk perbandingan
+                planGoDate.setHours(0, 0, 0, 0);
+
+                // Periksa apakah toko sudah lewat dari tanggal batas (cutoffDate)
+                // Jika planGoDate lebih kecil dari cutoffDate, artinya sudah lewat 3 hari Go-Live (atau lebih)
+                const isPastGoLiveCutoff = planGoDate.getTime() < cutoffDate.getTime();
+
+                // Kita hanya akan menampilkan toko jika:
+                // 1. Tanggal Plan Go belum tiba (atau tanggalnya sama dengan hari ini)
+                // 2. Belum melewati batas cut-off (cutoffDate)
+                return !isPastGoLiveCutoff;
+            });
+
+            // Simpan waktu fetch
+            lastFetchTime = new Date();
+            updateLastFetchTime();
+
+            allStores = filteredStores;
+            
+            // LOG PENTING: Berapa banyak toko yang berhasil diambil
+            console.log(`[Dashboard] Data berhasil diambil. Toko Aktif (setelah filter): ${allStores.length}`);
+
+            // JIKA BERHASIL MENGAMBIL DATA:
+            // Hentikan timer rotasi lama dan mulai dari halaman pertama
+            if (rotationTimer) clearTimeout(rotationTimer); 
+            currentPage = 0;
+
+            // Hentikan timer countdown real-time saat data diperbarui
+            if (window.countdownInterval) clearInterval(window.countdownInterval);
+            countdownTimers = [];
+
+            // Sembunyikan loading, tampilkan dashboard
+            loadingIndicator.classList.add('hidden');
+            dashboardContainer.classList.remove('hidden');
+
+            // Mulai tampilan dashboard dan atur timer rotasi
+            displayCurrentPage();
+            
+            // Atur timer untuk refresh data berikutnya (setelah data berhasil dimuat)
+            startDataRefreshTimer();
+
+        } catch (error) {
+            console.error("Kesalahan saat memuat data:", error);
+            // Hentikan timer refresh data agar tidak terjadi loop error cepat
+            if (dataRefreshTimer) clearTimeout(dataRefreshTimer); 
+            loadingIndicator.innerHTML = `<div class="text-red-500 text-xl">
+                <p>Gagal Memuat Data atau Parsing Gagal.</p>
+                <p class="text-base mt-2">Cek URL API di HTML dan Console browser untuk detail error.</p>
+                <p class="text-sm mt-1 text-gray-400">Error: ${error.message}</p>
+            </div>`;
+        }
+    }
+
+    // Memulai proses pengambilan data saat dokumen siap
+    document.addEventListener('DOMContentLoaded', fetchData);
+    
+    // Hentikan rotasi dan refresh jika tab di background, dan lanjutkan saat aktif (untuk efisiensi)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            if (rotationTimer) clearTimeout(rotationTimer);
+            if (dataRefreshTimer) clearTimeout(dataRefreshTimer);
+            if (window.countdownInterval) clearInterval(window.countdownInterval);
+            console.log('[Dashboard] Tab di background. Rotasi dan Refresh dihentikan.');
+        } else {
+            console.log('[Dashboard] Tab aktif kembali. Memuat ulang data dan melanjutkan rotasi.');
+            // Panggil fetchData untuk memastikan data terbaru ditampilkan
+            fetchData();
+        }
+    });
+
+</script>
