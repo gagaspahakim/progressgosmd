@@ -29,6 +29,7 @@
         #dashboard-container {
             width: 100%;
             max-width: 1400px; /* Ukuran maksimal untuk layar lebar */
+            position: relative; /* Penting untuk menempatkan tombol navigasi */
         }
         
         /* Kartu Toko */
@@ -38,6 +39,47 @@
             transition: opacity 0.5s ease-in-out;
             height: auto;
         }
+
+        /* Tombol Navigasi */
+        .nav-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 50px;
+            height: 50px;
+            background-color: rgba(30, 41, 59, 0.7); /* slate-800 semi-transparan */
+            color: white;
+            border: none;
+            border-radius: 9999px; /* Bulat */
+            font-size: 2rem;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 20; /* Pastikan di atas kartu */
+            transition: background-color 0.2s, opacity 0.2s;
+        }
+
+        .nav-button:hover:not(:disabled) {
+            background-color: rgba(51, 65, 85, 0.9); /* slate-700 lebih solid */
+        }
+        
+        .nav-button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Posisikan tombol */
+        #prev-button { left: -60px; }
+        #next-button { right: -60px; }
+
+        /* Media query untuk tampilan mobile/tablet: geser tombol ke dalam */
+        @media (max-width: 1024px) {
+            #prev-button { left: 5px; }
+            #next-button { right: 5px; }
+        }
+
 
         /* Transisi Fade */
         .fade-out {
@@ -109,10 +151,22 @@
             <h1 class="text-4xl md:text-5xl font-extrabold text-white tracking-wider">DASHBOARD PROGRESS GO BRANCH SAMARINDA</h1>
         </header>
 
-        <!-- Tempat Toko Ditampilkan (Rotasi) -->
+        <!-- Tombol Navigasi Sebelumnya -->
+        <button id="prev-button" class="nav-button" onclick="navigateStore(-1)">
+            <!-- Icon Chevron Kiri (SVG) -->
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+        </button>
+
+        <!-- Tempat Toko Ditampilkan -->
         <div id="store-display" class="grid grid-cols-1 gap-6">
             <!-- Kartu Toko akan dirender di sini oleh JavaScript -->
         </div>
+
+        <!-- Tombol Navigasi Berikutnya -->
+        <button id="next-button" class="nav-button" onclick="navigateStore(1)">
+            <!-- Icon Chevron Kanan (SVG) -->
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+        </button>
         
         <!-- Indikator Waktu Refresh Data dan Credit -->
         <footer class="text-center mt-6 text-sm text-gray-500">
@@ -134,9 +188,6 @@
     // GANTI URL INI DENGAN URL API SHEET ANDA!
     const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzxy3pDStVCNShlPXhjXlID7HOnU2cxq298-VvspbsoRQ2vYeYf3Pum3pMUg8pZWxgY/exec'; 
     
-    // Durasi rotasi per halaman (dalam milidetik). 2 menit = 120000ms
-    const ROTATION_INTERVAL = 120000;
-    
     // Interval untuk mengambil data terbaru dari API (misalnya 10 menit = 600000ms)
     const DATA_REFRESH_INTERVAL = 600000; 
 
@@ -152,10 +203,11 @@
     const loadingIndicator = document.getElementById('loadingIndicator');
     const apiWarning = document.getElementById('api-warning');
     const lastUpdatedElement = document.getElementById('last-updated-time');
+    const prevButton = document.getElementById('prev-button');
+    const nextButton = document.getElementById('next-button');
     
     let allStores = [];
     let currentPage = 0;
-    let rotationTimer = null;
     let dataRefreshTimer = null;
     let countdownTimers = []; // Array untuk menyimpan semua timer countdown
     let lastFetchTime = null;
@@ -188,7 +240,7 @@
     }
 
     /**
-     * Memulai efek confetti untuk perayaan Go-Live (MASIH BERFUNGSI)
+     * Memulai efek confetti untuk perayaan Go-Live
      */
     function triggerConfetti() {
         if (typeof confetti === 'undefined' || confettiActive) return; 
@@ -200,6 +252,7 @@
         const end = Date.now() + (5 * 1000); 
 
         (function frame() {
+            // Peluncuran Confetti dari kiri dan kanan
             confetti({
                 particleCount: 2,
                 angle: 60,
@@ -216,7 +269,7 @@
             if (Date.now() < end) {
                 requestAnimationFrame(frame);
             } else {
-                confettiActive = false;
+                confettiActive = false; // Setel ulang flag setelah selesai
             }
         }());
     }
@@ -291,9 +344,10 @@
     }
 
     /**
-     * Memulai interval yang akan memperbarui semua countdown yang sedang ditampilkan (INI ADALAH LOGIKA CONFETTI)
+     * Memulai interval yang akan memperbarui semua countdown yang sedang ditampilkan
      */
     function startRealTimeCountdown() {
+        // Hentikan interval lama jika ada
         if (window.countdownInterval) clearInterval(window.countdownInterval);
 
         window.countdownInterval = setInterval(() => {
@@ -307,12 +361,13 @@
                     if (distance > 0) {
                         element.innerHTML = formatTime(distance);
                     } else if (distance >= -86400000 && distance < 0) {
-                         // GO-LIVE HARI INI (atau sudah Go-Live tapi belum 24 jam)
+                         // LOGIKA CONFETTI DISINI: Go-Live Hari Ini (atau sudah Go-Live tapi belum 24 jam)
                         element.innerHTML = `<span class="font-bold text-yellow-400 text-2xl">GRAND OPENING SUKSES!</span>`;
                         
                         // Panggil efek confetti.
                         triggerConfetti(); 
                     } else {
+                        // Sudah lebih dari 24 jam Go-Live
                         element.innerHTML = formatTime(distance);
                     }
                 }
@@ -328,7 +383,8 @@
      * Membuat kotak indikator deviasi dengan tooltip
      */
     function getDeviationIndicator(deviasi) {
-        const value = parseInt(deviasi, 10);
+        // Mengubah Nan% atau string non-angka menjadi 0
+        const value = isNaN(parseInt(deviasi, 10)) ? 0 : parseInt(deviasi, 10);
         
         const isPositive = value > 0;
         const colorClass = isPositive ? 'bg-green-600' : (value < 0 ? 'bg-red-600' : 'bg-gray-600');
@@ -433,12 +489,17 @@
             SPK_LamaHari
         } = storeData;
 
+        // Pastikan NamaToko dan PlanTanggalGo ada sebelum merender (walaupun sudah difilter di fetchData, ini untuk keamanan)
+        if (!NamaToko || NamaToko.trim() === '' || !PlanTanggalGo || PlanTanggalGo.trim() === '') {
+             return ''; // Jangan render jika data kunci kosong
+        }
+
         const storeId = `store-${NO}`;
 
         const countdownHtml = initializeCountdown(PlanTanggalGo, storeId);
+        const progressPercent = isNaN(parseInt(Building_Progress, 10)) ? 0 : parseInt(Building_Progress, 10);
         const deviasiIndicatorHtml = getDeviationIndicator(Building_Deviasi); 
-        const progressPercent = parseInt(Building_Progress, 10);
-
+        
         const categoryLayout = createChecklistComponent(Category_Layout, Category_TanggalSelesai);
         const adminOPRTimeTable = createChecklistComponent(AdminOPR_TimeTable, AdminOPR_TimeTable_Tanggal);
         const adminOPRPB = createChecklistComponent(AdminOPR_PB, AdminOPR_PB_Tanggal);
@@ -590,20 +651,7 @@
     }
 
     /**
-     * Memulai timer rotasi (ROTASI SETIAP 2 MENIT - TIDAK BERUBAH)
-     */
-    function startRotationTimer() {
-        if (rotationTimer) clearTimeout(rotationTimer);
-        if (allStores.length > 0) {
-             rotationTimer = setTimeout(displayCurrentPage, ROTATION_INTERVAL);
-             console.log(`[Rotasi Toko] Timer rotasi disetel. Rotasi berikutnya dalam ${ROTATION_INTERVAL / 1000} detik. (2 Menit)`);
-        } else {
-             console.log(`[Rotasi Toko] Tidak ada toko aktif. Rotasi dihentikan.`);
-        }
-    }
-
-    /**
-     * Memulai timer refresh data (DATA REFRESH SETIAP 10 MENIT - TIDAK BERUBAH)
+     * Memulai timer refresh data (DATA REFRESH SETIAP 10 MENIT)
      */
     function startDataRefreshTimer() {
         if (dataRefreshTimer) clearTimeout(dataRefreshTimer);
@@ -621,6 +669,48 @@
     }
 
     /**
+     * Memperbarui status tombol navigasi (Next/Prev)
+     */
+    function updateNavigationButtons() {
+        // Nonaktifkan tombol PREV jika di halaman pertama (currentPage === 0)
+        prevButton.disabled = currentPage === 0;
+
+        // Nonaktifkan tombol NEXT jika di halaman terakhir
+        const totalPages = allStores.length > 0 ? Math.ceil(allStores.length / STORES_PER_PAGE) : 0;
+        nextButton.disabled = currentPage >= totalPages - 1 || allStores.length === 0;
+        
+        // Sembunyikan tombol jika hanya ada satu atau tidak ada toko
+        const shouldHide = allStores.length <= 1;
+        prevButton.style.display = shouldHide ? 'none' : 'flex';
+        nextButton.style.display = shouldHide ? 'none' : 'flex';
+    }
+
+    /**
+     * Navigasi Toko berdasarkan arah (direction: 1 untuk Next, -1 untuk Prev)
+     */
+    window.navigateStore = function(direction) {
+        if (allStores.length === 0) return;
+
+        let newPage = currentPage + direction;
+        const totalPages = allStores.length > 0 ? Math.ceil(allStores.length / STORES_PER_PAGE) : 0;
+
+        // Batasi navigasi agar tidak melewati batas
+        if (newPage < 0) {
+            newPage = 0;
+        } else if (newPage >= totalPages) {
+            newPage = totalPages - 1;
+        }
+        
+        // Hentikan jika tidak ada perubahan halaman (biasanya karena tombol dinonaktifkan)
+        if (newPage === currentPage && direction !== 0) return;
+        
+        currentPage = newPage;
+        
+        displayCurrentPage();
+    }
+
+
+    /**
      * Menampilkan data toko saat ini berdasarkan currentPage
      */
     function displayCurrentPage() {
@@ -632,16 +722,18 @@
                     <p class="text-gray-400 mt-2">Daftar toko yang akan datang kosong.</p>
                 </div>
             `;
-            if (rotationTimer) clearTimeout(rotationTimer);
+            // Pastikan tombol navigasi tersembunyi jika data kosong
+            updateNavigationButtons(); 
             return;
         }
         
-        confettiActive = false; 
+        confettiActive = false; // Reset Confetti flag saat pindah halaman
 
         storeDisplay.classList.remove('fade-in');
         storeDisplay.classList.add('fade-out');
         
         countdownTimers = []; 
+        // Hentikan interval lama agar tidak memproses countdown toko lama
         if (window.countdownInterval) clearInterval(window.countdownInterval);
 
         setTimeout(() => {
@@ -655,32 +747,27 @@
             if (storesToDisplay.length > 0) {
                 storesToDisplay.forEach(store => {
                     storeDisplay.innerHTML += renderStoreCard(store);
-                    console.log(`[Rotasi Toko] Menampilkan Toko: ${store.NamaToko} (Indeks: ${startIndex})`);
+                    console.log(`[Navigasi Toko] Menampilkan Toko: ${store.NamaToko} (Halaman: ${currentPage + 1}/${Math.ceil(allStores.length / STORES_PER_PAGE)})`);
                 });
             } else {
-                console.warn(`[Rotasi Toko] Gagal menampilkan toko di indeks ${startIndex}. Mungkin sudah mencapai akhir array.`);
+                console.warn(`[Navigasi Toko] Gagal menampilkan toko di indeks ${startIndex}. Mungkin sudah mencapai akhir array.`);
             }
 
-            startRealTimeCountdown();
+            // Mulai countdown lagi untuk toko yang baru ditampilkan
+            startRealTimeCountdown(); 
+            updateNavigationButtons(); // Panggil pembaruan tombol setiap kali tampilan berubah
 
             storeDisplay.classList.remove('fade-out');
             storeDisplay.classList.add('fade-in');
-
-            currentPage++;
-
-            if (startIndex + STORES_PER_PAGE >= allStores.length) {
-                currentPage = 0;
-            }
             
-            startRotationTimer();
         }, 500);
     }
 
     /**
-     * Mengambil data dari Google Sheet API (INI ADALAH LOGIKA FILTER TAKE OUT 3 HARI)
+     * Mengambil data dari Google Sheet API
      */
     async function fetchData() {
-        if (!GOOGLE_SHEET_API_URL || GOOGLE_SHEET_API_URL === 'PASTE_URL_API_APPS_SCRIPT_YANG_BERFUNGSI_DI_SINI') {
+        if (!GOOGLE_SHEET_API_URL || GOOGLE_SHEET_API_URL.includes('PASTE_URL')) {
             loadingIndicator.classList.add('hidden');
             apiWarning.classList.remove('hidden');
             return;
@@ -701,6 +788,19 @@
             }
             
             // =========================================================
+            // FILTER KETAT UNTUK MENGHAPUS BARIS KOSONG
+            // =========================================================
+            let filteredStores = rawStores.filter(store => {
+                // Hapus data jika NamaToko kosong, null, atau hanya spasi
+                const namaTokoValid = store.NamaToko && String(store.NamaToko).trim() !== '';
+                // Hapus data jika PlanTanggalGo kosong, null, atau hanya spasi (seperti di screenshot)
+                const planTanggalGoValid = store.PlanTanggalGo && String(store.PlanTanggalGo).trim() !== '';
+                
+                // Hanya lolos jika KEDUA-DUANYA valid
+                return namaTokoValid && planTanggalGoValid;
+            });
+
+            // =========================================================
             // FITUR 2: FILTER TOKO YANG SUDAH GO-LIVE LAMA (> 3 HARI)
             // =========================================================
             const now = new Date();
@@ -709,9 +809,10 @@
             const cutoffDate = new Date(now);
             cutoffDate.setDate(now.getDate() - 3); 
 
-            const filteredStores = rawStores.filter(store => {
+            filteredStores = filteredStores.filter(store => {
                 const planGoDateString = store.PlanTanggalGo;
-                if (!planGoDateString) return true; // Jika tgl GO blm ada, tampilkan
+                // Kita sudah pastikan planGoDateString ada di filter sebelumnya, tapi kita cek lagi
+                if (!planGoDateString) return true; 
 
                 try {
                     // Coba parsing tanggal GO
@@ -722,7 +823,7 @@
                         if (parts) {
                             planGoDate = new Date(parts[3], parts[2] - 1, parts[1]);
                         } else {
-                            // Jika format tgl GO tidak dikenali, tetap tampilkan
+                            // Jika format tgl GO tidak dikenali, tetap tampilkan (untuk pencegahan)
                             console.warn(`Tanggal GO tidak valid untuk ${store.NamaToko}: ${planGoDateString}`);
                             return true;
                         }
@@ -752,8 +853,11 @@
             
             console.log(`[Dashboard] Data berhasil diambil. ${rawStores.length} toko total, ${allStores.length} toko aktif ditampilkan.`);
             
-            // Atur ulang currentPage ke 0 setelah refresh data
-            currentPage = 0;
+            // Pertahankan currentPage, tetapi pastikan tidak melebihi batas baru
+            const totalPages = allStores.length > 0 ? Math.ceil(allStores.length / STORES_PER_PAGE) : 0;
+            if (currentPage >= totalPages) {
+                currentPage = Math.max(0, totalPages - 1);
+            }
 
             // Pastikan data ditampilkan setelah loading selesai
             if (loadingIndicator) {
@@ -761,6 +865,7 @@
                 dashboardContainer.classList.remove('hidden');
             }
             
+            // Tampilkan halaman saat ini
             displayCurrentPage();
             startDataRefreshTimer(); // Mulai timer refresh data berikutnya
 
@@ -785,6 +890,16 @@
             return;
         }
 
+        // Mulai pengambilan data awal
         fetchData(); 
+        
+        // Tambahkan event listener untuk navigasi keyboard (opsional, tapi berguna)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') {
+                navigateStore(1);
+            } else if (e.key === 'ArrowLeft') {
+                navigateStore(-1);
+            }
+        });
     });
 </script>
