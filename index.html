@@ -530,7 +530,8 @@
                 <!-- Header Toko -->
                 <div class="flex justify-between items-start border-b border-gray-700 pb-3 mb-4">
                     <div class="flex flex-col">
-                        <span class="text-sm font-light text-gray-400">#${NO} ${KodeToko}</span>
+                        <!-- PERBAIKAN BUG: Menggunakan operator || untuk memastikan nilai tidak undefined -->
+                        <span class="text-sm font-light text-gray-400">#${NO || ''} ${KodeToko || ''}</span>
                         <h2 class="text-3xl font-bold text-teal-400">${NamaToko}</h2>
                         <!-- TAMPILAN NOTARIS -->
                         ${notarisInfo}
