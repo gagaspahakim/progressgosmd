@@ -152,7 +152,7 @@
         </header>
 
         <!-- Tombol Navigasi Sebelumnya -->
-        <button id="prev-button" class="nav-button" onclick="navigateStore(-1)">
+        <button id="prev-button" class="nav-button" onclick="handleNavigationClick(-1)">
             <!-- Icon Chevron Kiri (SVG) -->
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
         </button>
@@ -163,7 +163,7 @@
         </div>
 
         <!-- Tombol Navigasi Berikutnya -->
-        <button id="next-button" class="nav-button" onclick="navigateStore(1)">
+        <button id="next-button" class="nav-button" onclick="handleNavigationClick(1)">
             <!-- Icon Chevron Kanan (SVG) -->
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
         </button>
@@ -191,6 +191,9 @@
     // Interval untuk mengambil data terbaru dari API (misalnya 10 menit = 600000ms)
     const DATA_REFRESH_INTERVAL = 600000; 
 
+    // Interval untuk rotasi toko otomatis (1 menit = 60000ms)
+    const STORE_ROTATION_INTERVAL = 60000; 
+
     // Jumlah toko yang ditampilkan per halaman.
     const STORES_PER_PAGE = 1;
 
@@ -209,9 +212,61 @@
     let allStores = [];
     let currentPage = 0;
     let dataRefreshTimer = null;
+    let rotationTimer = null; // Timer untuk rotasi otomatis
     let countdownTimers = []; // Array untuk menyimpan semua timer countdown
     let lastFetchTime = null;
     let confettiActive = false; // Flag untuk memastikan confetti tidak berjalan ganda secara bersamaan
+
+    /**
+     * Memulai timer rotasi toko otomatis.
+     */
+    function startStoreRotation() {
+        // Hentikan timer lama jika ada
+        if (rotationTimer) clearInterval(rotationTimer);
+
+        const totalPages = allStores.length > 0 ? Math.ceil(allStores.length / STORES_PER_PAGE) : 0;
+        
+        // Rotasi hanya dilakukan jika total toko lebih dari 1
+        if (totalPages > 1) {
+            rotationTimer = setInterval(() => {
+                let newPage = currentPage + 1;
+                // Jika sudah di halaman terakhir, kembali ke halaman pertama
+                if (newPage >= totalPages) {
+                    newPage = 0;
+                }
+                console.log(`[Rotasi Otomatis] Pindah ke halaman: ${newPage + 1}/${totalPages}`);
+                currentPage = newPage;
+                displayCurrentPage();
+            }, STORE_ROTATION_INTERVAL);
+            console.log(`[Rotasi Otomatis] Dimulai. Toko akan berganti setiap ${STORE_ROTATION_INTERVAL / 1000} detik.`);
+        } else {
+             console.log('[Rotasi Otomatis] Tidak perlu rotasi (total toko <= 1).');
+        }
+    }
+
+    /**
+     * Menghentikan rotasi otomatis dan memulai ulang timer setelah 1 menit.
+     * Dipanggil saat pengguna melakukan navigasi manual (klik tombol).
+     */
+    function resetStoreRotation() {
+        if (rotationTimer) {
+            clearInterval(rotationTimer);
+            rotationTimer = null;
+            console.log('[Rotasi Otomatis] Dihentikan sementara karena interaksi pengguna.');
+        }
+        
+        // Beri waktu 1 menit (sesuai interval rotasi) sebelum mulai rotasi otomatis lagi
+        setTimeout(startStoreRotation, STORE_ROTATION_INTERVAL);
+    }
+
+    /**
+     * Handler saat tombol navigasi diklik
+     */
+    window.handleNavigationClick = function(direction) {
+        resetStoreRotation(); // Reset timer rotasi
+        navigateStore(direction); // Panggil fungsi navigasi inti
+    }
+
 
     /**
      * Mengubah tanggal YYYY-MM-DD menjadi format DD MMMM YYYY (Indonesia)
@@ -489,9 +544,9 @@
             SPK_LamaHari
         } = storeData;
 
-        // Pastikan NamaToko dan PlanTanggalGo ada sebelum merender (walaupun sudah difilter di fetchData, ini untuk keamanan)
+        // Pastikan NamaToko dan PlanTanggalGo ada sebelum merender 
         if (!NamaToko || NamaToko.trim() === '' || !PlanTanggalGo || PlanTanggalGo.trim() === '') {
-             return ''; // Jangan render jika data kunci kosong
+             return ''; 
         }
 
         const storeId = `store-${NO}`;
@@ -564,7 +619,7 @@
                             <div class="flex-shrink-0 flex items-center space-x-4">
                                 <span class="text-xl font-extrabold text-white">${progressPercent}%</span>
                                 <!-- Kotak Deviasi Baru -->
-                                ${getDeviationIndicator(Building_Deviasi)} 
+                                ${deviasiIndicatorHtml} 
                             </div>
                         </div>
                     </div>
@@ -725,6 +780,8 @@
             `;
             // Pastikan tombol navigasi tersembunyi jika data kosong
             updateNavigationButtons(); 
+            // Hentikan rotasi jika tidak ada toko
+            if (rotationTimer) clearInterval(rotationTimer);
             return;
         }
         
@@ -868,6 +925,7 @@
             
             // Tampilkan halaman saat ini
             displayCurrentPage();
+            startStoreRotation(); // *** MULAI ROTASI OTOMATIS SETELAH AMBIL DATA ***
             startDataRefreshTimer(); // Mulai timer refresh data berikutnya
 
         } catch (error) {
@@ -897,9 +955,9 @@
         // Tambahkan event listener untuk navigasi keyboard (opsional, tapi berguna)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowRight') {
-                navigateStore(1);
+                handleNavigationClick(1);
             } else if (e.key === 'ArrowLeft') {
-                navigateStore(-1);
+                handleNavigationClick(-1);
             }
         });
     });
